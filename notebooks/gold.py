@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # DBTITLE 1,Gold Layer - Business Aggregations
 # MAGIC %md
 # MAGIC # Gold Layer - Business Aggregations
@@ -156,6 +160,3 @@ print("\n" + "=" * 60)
 print("✓ Gold layer aggregations complete")
 print(f"✓ Data saved to: {gold_path}")
 print("=" * 60)
-
-# COMMAND ----------
-

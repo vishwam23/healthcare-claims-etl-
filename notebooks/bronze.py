@@ -33,11 +33,18 @@ claim_df = spark.read.csv(
     inferSchema=True
 )
 
+# Cache to avoid re-scanning for count and display
+claim_df.cache()
+row_count = claim_df.count()
+
 # Write to bronze as Delta table
 claim_df.write.format("delta").mode("overwrite").save(f"{bronze_path}/claim")
 
-print(f"Claim data loaded to bronze. Row count: {claim_df.count()}")
+print(f"Claim data loaded to bronze. Row count: {row_count}")
 display(claim_df.limit(5))
+
+# Clean up cache
+claim_df.unpersist()
 
 # COMMAND ----------
 
@@ -49,11 +56,18 @@ member_df = spark.read.csv(
     inferSchema=True
 )
 
+# Cache to avoid re-scanning for count and display
+member_df.cache()
+row_count = member_df.count()
+
 # Write to bronze as Delta table
 member_df.write.format("delta").mode("overwrite").save(f"{bronze_path}/member")
 
-print(f"Member data loaded to bronze. Row count: {member_df.count()}")
+print(f"Member data loaded to bronze. Row count: {row_count}")
 display(member_df.limit(5))
+
+# Clean up cache
+member_df.unpersist()
 
 # COMMAND ----------
 
@@ -65,11 +79,18 @@ provider_df = spark.read.csv(
     inferSchema=True
 )
 
+# Cache to avoid re-scanning for count and display
+provider_df.cache()
+row_count = provider_df.count()
+
 # Write to bronze as Delta table
 provider_df.write.format("delta").mode("overwrite").save(f"{bronze_path}/provider")
 
-print(f"Provider data loaded to bronze. Row count: {provider_df.count()}")
+print(f"Provider data loaded to bronze. Row count: {row_count}")
 display(provider_df.limit(5))
+
+# Clean up cache
+provider_df.unpersist()
 
 # COMMAND ----------
 
