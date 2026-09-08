@@ -37,19 +37,20 @@ member_df = spark.read.format("delta").load(f"{bronze_path}/member")
 print(f"Bronze records: {member_df.count()}")
 
 # 1. Capture records with missing member_id
-missing_id = member_df.filter(F.col('member_id').isNull())
-print(f"\n⚠ Missing member_id: {missing_id.count()}")
-if missing_id.count() > 0:
+missing_id = member_df.filter(F.col('member_id').isNull()).cache()
+missing_count = missing_id.count()
+print(f"\n⚠ Missing member_id: {missing_count}")
+if missing_count > 0:
     missing_id.write.format("delta").mode("overwrite").save(f"{quarantine_path}/member_missing_id")
+missing_id.unpersist()
 
-# 2. Find duplicates
-from pyspark.sql.window import Window
-window = Window.partitionBy('member_id').orderBy('member_id')
-member_with_row = member_df.withColumn('row_num', F.row_number().over(window))
-duplicates = member_with_row.filter(F.col('row_num') > 1).drop('row_num')
-print(f"⚠ Duplicates: {duplicates.count()}")
-if duplicates.count() > 0:
+# 2. Find duplicates - simpler approach
+duplicates = member_df.exceptAll(member_df.dropDuplicates(['member_id'])).cache()
+dup_count = duplicates.count()
+print(f"⚠ Duplicates: {dup_count}")
+if dup_count > 0:
     duplicates.write.format("delta").mode("overwrite").save(f"{quarantine_path}/member_duplicates")
+duplicates.unpersist()
 
 # 3. Clean data
 member_clean = member_df.filter(
@@ -74,19 +75,20 @@ provider_df = spark.read.format("delta").load(f"{bronze_path}/provider")
 print(f"Bronze records: {provider_df.count()}")
 
 # 1. Capture records with missing provider_id
-missing_id = provider_df.filter(F.col('provider_id').isNull())
-print(f"\n⚠ Missing provider_id: {missing_id.count()}")
-if missing_id.count() > 0:
+missing_id = provider_df.filter(F.col('provider_id').isNull()).cache()
+missing_count = missing_id.count()
+print(f"\n⚠ Missing provider_id: {missing_count}")
+if missing_count > 0:
     missing_id.write.format("delta").mode("overwrite").save(f"{quarantine_path}/provider_missing_id")
+missing_id.unpersist()
 
-# 2. Find duplicates
-from pyspark.sql.window import Window
-window = Window.partitionBy('provider_id').orderBy('provider_id')
-provider_with_row = provider_df.withColumn('row_num', F.row_number().over(window))
-duplicates = provider_with_row.filter(F.col('row_num') > 1).drop('row_num')
-print(f"⚠ Duplicates: {duplicates.count()}")
-if duplicates.count() > 0:
+# 2. Find duplicates - simpler approach
+duplicates = provider_df.exceptAll(provider_df.dropDuplicates(['provider_id'])).cache()
+dup_count = duplicates.count()
+print(f"⚠ Duplicates: {dup_count}")
+if dup_count > 0:
     duplicates.write.format("delta").mode("overwrite").save(f"{quarantine_path}/provider_duplicates")
+duplicates.unpersist()
 
 # 3. Clean data
 provider_clean = provider_df.filter(
@@ -109,28 +111,31 @@ member_silver = spark.read.format("delta").load(f"{silver_path}/member")
 provider_silver = spark.read.format("delta").load(f"{silver_path}/provider")
 
 # 1. Capture records with missing claim_id
-missing_id = claim_df.filter(F.col('claim_id').isNull())
-print(f"\n⚠ Missing claim_id: {missing_id.count()}")
-if missing_id.count() > 0:
+missing_id = claim_df.filter(F.col('claim_id').isNull()).cache()
+missing_count = missing_id.count()
+print(f"\n⚠ Missing claim_id: {missing_count}")
+if missing_count > 0:
     missing_id.write.format("delta").mode("overwrite").save(f"{quarantine_path}/claim_missing_id")
+missing_id.unpersist()
 
-# 2. Find duplicates
-from pyspark.sql.window import Window
-window = Window.partitionBy('claim_id').orderBy('claim_id')
-claim_with_row = claim_df.withColumn('row_num', F.row_number().over(window))
-duplicates = claim_with_row.filter(F.col('row_num') > 1).drop('row_num')
-print(f"⚠ Duplicates: {duplicates.count()}")
-if duplicates.count() > 0:
+# 2. Find duplicates - simpler approach
+duplicates = claim_df.exceptAll(claim_df.dropDuplicates(['claim_id'])).cache()
+dup_count = duplicates.count()
+print(f"⚠ Duplicates: {dup_count}")
+if dup_count > 0:
     duplicates.write.format("delta").mode("overwrite").save(f"{quarantine_path}/claim_duplicates")
+duplicates.unpersist()
 
 # 3. Capture negative amounts
 negative_amounts = claim_df.filter(
     (F.col('claim_id').isNotNull()) & 
     (F.col('claim_amount') < 0)
-)
-print(f"⚠ Negative amounts: {negative_amounts.count()}")
-if negative_amounts.count() > 0:
+).cache()
+neg_count = negative_amounts.count()
+print(f"⚠ Negative amounts: {neg_count}")
+if neg_count > 0:
     negative_amounts.write.format("delta").mode("overwrite").save(f"{quarantine_path}/claim_negative_amounts")
+negative_amounts.unpersist()
 
 # 4. Clean data (remove bad records)
 claim_clean = claim_df.filter(
@@ -144,22 +149,20 @@ claim_clean = claim_clean.withColumn(
     F.expr("try_to_date(service_date, 'yyyy-MM-dd')")
 )
 
-# 6. Capture orphaned records (invalid foreign keys)
-orphaned_claims = claim_clean.join(
-    member_silver.select('member_id'),
-    'member_id',
-    'left_anti'
-).unionByName(
-    claim_clean.join(
-        provider_silver.select('provider_id'),
-        'provider_id',
-        'left_anti'
-    )
-).dropDuplicates(['claim_id'])
+# 6. Capture orphaned records (invalid foreign keys) - optimized with broadcast
+member_ids = member_silver.select('member_id')
+provider_ids = provider_silver.select('provider_id')
 
-print(f"⚠ Orphaned records (invalid member_id or provider_id): {orphaned_claims.count()}")
-if orphaned_claims.count() > 0:
+# Find claims with invalid member_id OR invalid provider_id
+orphaned_member = claim_clean.join(member_ids, 'member_id', 'left_anti')
+orphaned_provider = claim_clean.join(provider_ids, 'provider_id', 'left_anti')
+orphaned_claims = orphaned_member.unionByName(orphaned_provider).dropDuplicates(['claim_id']).cache()
+
+orphaned_count = orphaned_claims.count()
+print(f"⚠ Orphaned records (invalid member_id or provider_id): {orphaned_count}")
+if orphaned_count > 0:
     orphaned_claims.write.format("delta").mode("overwrite").save(f"{quarantine_path}/claim_orphaned")
+orphaned_claims.unpersist()
 
 # 7. Keep only valid claims (referential integrity)
 claim_clean = claim_clean.join(
