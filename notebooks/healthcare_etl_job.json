@@ -1,0 +1,51 @@
+{
+  "name": "Healthcare ETL pipeline",
+  "format": "MULTI_TASK",
+  "max_concurrent_runs": 1,
+  "performance_target": "PERFORMANCE_OPTIMIZED",
+  "queue": {
+    "enabled": true
+  },
+  "email_notifications": {
+    "no_alert_for_skipped_runs": false
+  },
+  "tasks": [
+    {
+      "task_key": "Bronze_Layer",
+      "run_if": "ALL_SUCCESS",
+      "notebook_task": {
+        "notebook_path": "/Workspace/Users/vishwam23042002@gmail.com/healthcare-claims-etl/notebooks/bronze",
+        "source": "WORKSPACE"
+      },
+      "timeout_seconds": 0,
+      "disabled": false
+    },
+    {
+      "task_key": "Silver_layer",
+      "depends_on": [
+        {"task_key": "Bronze_Layer"}
+      ],
+      "run_if": "ALL_SUCCESS",
+      "notebook_task": {
+        "notebook_path": "/Workspace/Users/vishwam23042002@gmail.com/healthcare-claims-etl/notebooks/silver",
+        "source": "WORKSPACE"
+      },
+      "timeout_seconds": 0,
+      "disabled": false
+    },
+    {
+      "task_key": "Gold_layer",
+      "depends_on": [
+        {"task_key": "Silver_layer"}
+      ],
+      "run_if": "ALL_SUCCESS",
+      "notebook_task": {
+        "notebook_path": "/Workspace/Users/vishwam23042002@gmail.com/healthcare-claims-etl/notebooks/gold",
+        "source": "WORKSPACE"
+      },
+      "timeout_seconds": 0,
+      "disabled": false
+    }
+  ],
+  "timeout_seconds": 0
+}
